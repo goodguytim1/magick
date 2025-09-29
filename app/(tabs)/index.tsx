@@ -1,19 +1,22 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useMemo } from "react";
 import {
+  Animated,
+  FlatList,
+  Platform,
   SafeAreaView,
-  View,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  StatusBar,
-  Switch,
-  FlatList,
-  Animated,
-  Platform,
+  View,
 } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { QUESTIONS, MISSIONS } from "../../content";
+import RecommendedNearby from "../../components/RecommendedNearby";
+import { MISSIONS, QUESTIONS } from "../../content";
+import { getLocation } from "../../lib/location";
+import { recommendNearby, setMonetizationMode } from "../../lib/recommendations";
 
 /** ==== THEME ==== */
 const DARK = {
@@ -58,12 +61,10 @@ const Q_CATS = Object.keys(QUESTIONS);
 const M_CATS = Object.keys(MISSIONS);
 
 /** Helpers */
-const allQuestions = () => Q_CATS.flatMap((c) =>
-  QUESTIONS[c].map((t) => ({ type: "Question", category: c, text: t }))
-);
-const allMissions = () => M_CATS.flatMap((c) =>
-  MISSIONS[c].map((t) => ({ type: "Mission", category: c, text: t }))
-);
+const allQuestions = () =>
+  Q_CATS.flatMap((c) => QUESTIONS[c].map((t) => ({ type: "Question", category: c, text: t })));
+const allMissions = () =>
+  M_CATS.flatMap((c) => MISSIONS[c].map((t) => ({ type: "Mission", category: c, text: t })));
 const ALL = () => [...allQuestions(), ...allMissions()];
 
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -99,95 +100,60 @@ async function loadTheme() {
 async function saveTheme(t) {
   await AsyncStorage.setItem("magick.theme", t.name);
 }
+async function loadMonetizationMode() {
+  const raw = await AsyncStorage.getItem("magick.monetizationMode");
+  return raw === "sponsor" ? "sponsor" : "affiliate";
+}
+async function saveMonetizationMode(mode) {
+  await AsyncStorage.setItem("magick.monetizationMode", mode);
+}
 
 /** UI */
 export default function App() {
-  const [theme, setTheme] = useState(DARK);
-  const [screen, setScreen] = useState("home"); // home | draw | favorites | daily | dateCats
-  const [current, setCurrent] = useState(null); // {type, category, text}
-  const [mode, setMode] = useState("category"); // category | all | dateIdeas
-  const [favs, setFavs] = useState([]);
+  // ========= State =========
+  const [theme, setTheme] = React.useState(DARK);
+  const [screen, setScreen] = React.useState("home"); // home | draw | favorites | daily | dateCats
+  const [current, setCurrent] = React.useState(null); // {type, category, text}
+  const [mode, setMode] = React.useState("category"); // category | all | dateIdeas
+  const [favs, setFavs] = React.useState([]);
+  const [geo, setGeo] = React.useState({ city: null, region: null, coord: null });
+  const [recommendations, setRecommendations] = React.useState([]);
+  const [monetizationMode, setMonetizationModeState] = React.useState("affiliate");
 
-  useEffect(() => {
-    (async () => {
-      setFavs(await loadFavs());
-      setTheme(await loadTheme());
-    })();
-  }, []);
+  // ========= Refs & derived =========
+  const flip = React.useRef(new Animated.Value(0)).current;
+  const [flipSide, setFlipSide] = React.useState(0);
+  const flipInterpolate = flip.interpolate({ inputRange: [0, 180], outputRange: ["0deg", "180deg"] });
 
-  // Web-specific CSS overflow fix
-  useEffect(() => {
-    if (Platform.OS === "web") {
-      document.documentElement.style.overflowY = "auto";
-      document.body.style.overflowY = "auto";
-    }
-  }, []);
+  // Date Ideas deck (sub-categories)
+  const DATE_IDEAS = useMemo(() => ({
+    "Enchanted Nights ✨": [
+      ...MISSIONS["Bond Quests"],
+      ...MISSIONS["Creative Charms"],
+    ].map((t) => ({ type: "Mission", category: "Date Ideas", text: t })),
+    "Starlit Adventures 🌌": MISSIONS["Adventure Sparks"].map((t) => ({
+      type: "Mission", category: "Date Ideas", text: t,
+    })),
+    "Cosmic Connection 🌠": [
+      ...QUESTIONS["Mirror Moments"],
+      ...QUESTIONS["Spark Questions"],
+      ...MISSIONS["Mirror Quests"],
+    ].map((t) => ({
+      type: t.includes("?") ? "Question" : "Mission",
+      category: "Date Ideas",
+      text: t,
+    })),
+  }), []);
+  const DATE_CAT_KEYS = Object.keys(DATE_IDEAS);
 
-  // Web-specific keyboard shortcuts
-  useEffect(() => {
-    if (Platform.OS !== 'web') return;
-
-    const handleKeyPress = (event) => {
-      // Space bar to draw again when on draw screen
-      if (event.code === 'Space' && screen === 'draw' && current) {
-        event.preventDefault();
-        drawAgain();
-      }
-      // Escape to go back
-      if (event.code === 'Escape' && screen !== 'home') {
-        setScreen('home');
-      }
-      // F key to toggle favorite
-      if (event.code === 'KeyF' && screen === 'draw' && current) {
-        event.preventDefault();
-        toggleFav();
-      }
-      // D key for daily card
-      if (event.code === 'KeyD' && screen === 'home') {
-        event.preventDefault();
-        setScreen('daily');
-      }
-      // S key for shuffle all
-      if (event.code === 'KeyS' && screen === 'home') {
-        event.preventDefault();
-        setMode("all");
-        setCurrent(pick(ALL()));
-        setScreen("draw");
-        flip.setValue(0);
-        setFlipSide(0);
-      }
-      // T key to toggle theme
-      if (event.code === 'KeyT' && screen === 'home') {
-        event.preventDefault();
-        setThemeToggle(theme.name === 'dark');
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyPress);
-    return () => document.removeEventListener('keydown', handleKeyPress);
-  }, [screen, current, theme.name]);
-
+  // ========= Memos =========
   const inFav = useMemo(
     () => (current ? favs.some((f) => keyOf(f) === keyOf(current)) : false),
     [current, favs]
   );
 
-  const toggleFav = async () => {
-    if (!current) return;
-    const exists = favs.find((f) => keyOf(f) === keyOf(current));
-    let next = exists ? favs.filter((f) => keyOf(f) !== keyOf(current)) : [current, ...favs];
-    setFavs(next);
-    await saveFavs(next);
-  };
-
-  const flip = useRef(new Animated.Value(0)).current;
-  const [flipSide, setFlipSide] = useState(0); // 0 or 1
-  const flipInterpolate = flip.interpolate({
-    inputRange: [0, 180],
-    outputRange: ["0deg", "180deg"],
-  });
-
-  const drawFromCategory = (cat, type) => {
+  // ========= Callbacks (declare BEFORE effects that use them) =========
+  const drawFromCategory = React.useCallback((cat, type) => {
     const data =
       type === "Question"
         ? QUESTIONS[cat].map((t) => ({ type, category: cat, text: t }))
@@ -198,9 +164,77 @@ export default function App() {
     setScreen("draw");
     setFlipSide(0);
     flip.setValue(0);
+  }, [flip]);
+
+  const toggleFav = React.useCallback(async () => {
+    if (!current) return;
+    const exists = favs.find((f) => keyOf(f) === keyOf(current));
+    const next = exists ? favs.filter((f) => keyOf(f) !== keyOf(current)) : [current, ...favs];
+    setFavs(next);
+    await saveFavs(next);
+  }, [current, favs]);
+
+  const drawAgain = React.useCallback(() => {
+    if (!current) return;
+    const half = Animated.timing(flip, { toValue: 180, duration: 180, useNativeDriver: true });
+    const back = Animated.timing(flip, { toValue: 0, duration: 180, useNativeDriver: true });
+
+    half.start(() => {
+      if (mode === "all") {
+        setCurrent(pick(ALL()));
+      } else if (mode === "dateIdeas") {
+        const pool = [].concat(...DATE_CAT_KEYS.map((k) => DATE_IDEAS[k]));
+        setCurrent(pick(pool));
+      } else {
+        // same category
+        drawFromCategory(current.category, current.type);
+        return; // drawFromCategory already reset flip
+      }
+      setFlipSide((s) => 1 - s);
+      back.start();
+    });
+  }, [current, mode, flip, DATE_CAT_KEYS, DATE_IDEAS, drawFromCategory]);
+
+  const loadLocationAndRecommendations = React.useCallback(async () => {
+    try {
+      const location = await getLocation();
+      setGeo(location);
+      
+      const recs = recommendNearby({ 
+        userCity: location.city, 
+        userCoord: location.coord, 
+        card: current,
+        userLocation: location
+      });
+      setRecommendations(recs);
+    } catch (error) {
+      console.log('Error loading location/recommendations:', error);
+      // Fallback to Jacksonville recommendations
+      const recs = recommendNearby({ 
+        userCity: 'Jacksonville', 
+        userCoord: null, 
+        card: current 
+      });
+      setRecommendations(recs);
+    }
+  }, [current]);
+
+  const setThemeToggle = async (checked) => {
+    const next = checked ? LIGHT : DARK;
+    setTheme(next);
+    await saveTheme(next);
   };
 
-  // hero decks
+  const setMonetizationToggle = async (checked) => {
+    const mode = checked ? "sponsor" : "affiliate";
+    setMonetizationModeState(mode);
+    setMonetizationMode(mode);
+    await saveMonetizationMode(mode);
+    if (current) {
+      loadLocationAndRecommendations();
+    }
+  };
+
   const drawConnectionDeck = () => {
     const next = pick(allQuestions());
     setMode("all");
@@ -209,6 +243,7 @@ export default function App() {
     setFlipSide(0);
     flip.setValue(0);
   };
+
   const drawChallengeDeck = () => {
     const next = pick(allMissions());
     setMode("all");
@@ -217,32 +252,6 @@ export default function App() {
     setFlipSide(0);
     flip.setValue(0);
   };
-
-  // Date Ideas deck (mystical sub-categories)
-  const DATE_IDEAS = useMemo(
-    () => ({
-      "Enchanted Nights ✨": [
-        ...MISSIONS["Bond Quests"],
-        ...MISSIONS["Creative Charms"],
-      ].map((t) => ({ type: "Mission", category: "Date Ideas", text: t })),
-      "Starlit Adventures 🌌": MISSIONS["Adventure Sparks"].map((t) => ({
-        type: "Mission",
-        category: "Date Ideas",
-        text: t,
-      })),
-      "Cosmic Connection 🌠": [
-        ...QUESTIONS["Mirror Moments"],
-        ...QUESTIONS["Spark Questions"],
-        ...MISSIONS["Mirror Quests"],
-      ].map((t) => ({
-        type: t.includes("?") ? "Question" : "Mission",
-        category: "Date Ideas",
-        text: t,
-      })),
-    }),
-    []
-  );
-  const DATE_CAT_KEYS = Object.keys(DATE_IDEAS);
 
   const drawDateIdea = (subCat) => {
     const next = pick(DATE_IDEAS[subCat]);
@@ -253,44 +262,73 @@ export default function App() {
     flip.setValue(0);
   };
 
-  const drawAgain = () => {
-    if (!current) return;
-    const half = Animated.timing(flip, {
-      toValue: 180,
-      duration: 180,
-      useNativeDriver: true,
-    });
-    const back = Animated.timing(flip, {
-      toValue: 0,
-      duration: 180,
-      useNativeDriver: true,
-    });
-    half.start(() => {
-      // swap content mid-flip
-      if (mode === "all") {
-        setCurrent(pick(ALL()));
-      } else if (mode === "dateIdeas") {
-        // keep within Date Ideas pool
-        const pool = [].concat(...DATE_CAT_KEYS.map((k) => DATE_IDEAS[k]));
-        setCurrent(pick(pool));
-      } else {
-        // same category
-        drawFromCategory(current.category, current.type);
-        // drawFromCategory already sets current and resets flip; so early return
-        return;
+  // ========= Effects (safe now; callbacks exist) =========
+  React.useEffect(() => {
+    (async () => {
+      setFavs(await loadFavs());
+      setTheme(await loadTheme());
+      const mode = await loadMonetizationMode();
+      setMonetizationModeState(mode);
+      setMonetizationMode(mode);
+    })();
+  }, []);
+
+  React.useEffect(() => {
+    if (current) loadLocationAndRecommendations();
+  }, [current, loadLocationAndRecommendations]);
+
+  React.useEffect(() => {
+    if (Platform.OS === "web") {
+      document.documentElement.style.overflowY = "auto";
+      document.body.style.overflowY = "auto";
+    }
+  }, []);
+
+  // Web-specific keyboard shortcuts
+  React.useEffect(() => {
+    if (Platform.OS !== "web") return;
+
+    const handleKeyPress = (event) => {
+      // Space bar to draw again when on draw screen
+      if (event.code === "Space" && screen === "draw" && current) {
+        event.preventDefault();
+        drawAgain();
       }
-      setFlipSide(1 - flipSide);
-      back.start();
-    });
-  };
+      // Escape to go back
+      if (event.code === "Escape" && screen !== "home") {
+        setScreen("home");
+      }
+      // F key to toggle favorite
+      if (event.code === "KeyF" && screen === "draw" && current) {
+        event.preventDefault();
+        toggleFav();
+      }
+      // D key for daily card
+      if (event.code === "KeyD" && screen === "home") {
+        event.preventDefault();
+        setScreen("daily");
+      }
+      // S key for shuffle all
+      if (event.code === "KeyS" && screen === "home") {
+        event.preventDefault();
+        setMode("all");
+        setCurrent(pick(ALL()));
+        setScreen("draw");
+        flip.setValue(0);
+        setFlipSide(0);
+      }
+      // T key to toggle theme
+      if (event.code === "KeyT" && screen === "home") {
+        event.preventDefault();
+        setThemeToggle(theme.name === "dark");
+      }
+    };
 
-  const setThemeToggle = async (checked) => {
-    const next = checked ? LIGHT : DARK;
-    setTheme(next);
-    await saveTheme(next);
-  };
+    document.addEventListener("keydown", handleKeyPress);
+    return () => document.removeEventListener("keydown", handleKeyPress);
+  }, [screen, current, theme.name, drawAgain, toggleFav]);
 
-  /** ---- UI Components ---- */
+  // ========= Local UI components (can safely reference state now) =========
   const Header = ({ title, showBack }) => (
     <View style={[styles.header, { borderBottomColor: theme.line }]}>
       <View style={{ width: 80 }}>
@@ -309,21 +347,16 @@ export default function App() {
   );
 
   const Tile = ({ label, onPress }) => {
-    // Get icon for each category
-    const getIcon = (category) => {
-      const icons = {
-        "Spark Questions": "⚡",
-        "Mirror Moments": "🪞", 
-        "Playful Sparks": "🎭",
-        "Bond Builders": "💝",
-        "Adventure Sparks": "🌍",
-        "Creative Charms": "🎨",
-        "Mirror Quests": "🔮",
-        "Bond Quests": "❤️",
-      };
-      return icons[category] || "✨";
+    const icons = {
+      "Spark Questions": "⚡",
+      "Mirror Moments": "🪞",
+      "Playful Sparks": "🎭",
+      "Bond Builders": "💝",
+      "Adventure Sparks": "🌍",
+      "Creative Charms": "🎨",
+      "Mirror Quests": "🔮",
+      "Bond Quests": "❤️",
     };
-
     return (
       <TouchableOpacity
         onPress={onPress}
@@ -341,7 +374,7 @@ export default function App() {
         activeOpacity={0.9}
       >
         <View style={styles.tileBadge}>
-          <Text style={styles.tileIcon}>{getIcon(label)}</Text>
+          <Text style={styles.tileIcon}>{icons[label] || "✨"}</Text>
         </View>
         <Text style={[styles.tileText, { color: "white" }]}>{label}</Text>
       </TouchableOpacity>
@@ -349,15 +382,11 @@ export default function App() {
   };
 
   const Hero = ({ label, onPress }) => {
-    const getHeroIcon = (deckLabel) => {
-      const icons = {
-        "The Connection Deck": "💝",
-        "Date Night Deck": "🌙",
-        "The Challenge Deck": "⚔️",
-      };
-      return icons[deckLabel] || "✨";
+    const icons = {
+      "The Connection Deck": "💝",
+      "Date Night Deck": "🌙",
+      "The Challenge Deck": "⚔️",
     };
-
     return (
       <TouchableOpacity
         onPress={onPress}
@@ -375,47 +404,45 @@ export default function App() {
         activeOpacity={0.93}
       >
         <View style={styles.heroIcon}>
-          <Text style={styles.heroIconText}>{getHeroIcon(label)}</Text>
+          <Text style={styles.heroIconText}>{icons[label] || "✨"}</Text>
         </View>
         <Text style={[styles.heroTxt, { color: "white" }]}>{label}</Text>
       </TouchableOpacity>
     );
   };
 
-  // Web-specific keyboard shortcuts help
   const KeyboardShortcuts = () => {
-    if (Platform.OS !== 'web') return null;
-    
+    if (Platform.OS !== "web") return null;
     return (
       <View style={[styles.shortcutsContainer, { backgroundColor: theme.pill }]}>
         <Text style={[styles.shortcutsTitle, { color: theme.text }]}>⌨️ Keyboard Shortcuts</Text>
         <View style={styles.shortcutsGrid}>
           <Text style={[styles.shortcut, { color: theme.sub }]}>
-            <Text style={{ fontWeight: '800' }}>Space</Text> - Draw Again
+            <Text style={{ fontWeight: "800" }}>Space</Text> - Draw Again
           </Text>
           <Text style={[styles.shortcut, { color: theme.sub }]}>
-            <Text style={{ fontWeight: '800' }}>F</Text> - Toggle Favorite
+            <Text style={{ fontWeight: "800" }}>F</Text> - Toggle Favorite
           </Text>
           <Text style={[styles.shortcut, { color: theme.sub }]}>
-            <Text style={{ fontWeight: '800' }}>D</Text> - Daily Card
+            <Text style={{ fontWeight: "800" }}>D</Text> - Daily Card
           </Text>
           <Text style={[styles.shortcut, { color: theme.sub }]}>
-            <Text style={{ fontWeight: '800' }}>S</Text> - Shuffle All
+            <Text style={{ fontWeight: "800" }}>S</Text> - Shuffle All
           </Text>
           <Text style={[styles.shortcut, { color: theme.sub }]}>
-            <Text style={{ fontWeight: '800' }}>T</Text> - Toggle Theme
+            <Text style={{ fontWeight: "800" }}>T</Text> - Toggle Theme
           </Text>
           <Text style={[styles.shortcut, { color: theme.sub }]}>
-            <Text style={{ fontWeight: '800' }}>Esc</Text> - Go Back
+            <Text style={{ fontWeight: "800" }}>Esc</Text> - Go Back
           </Text>
         </View>
       </View>
     );
   };
 
-  /** ---- Screens ---- */
+  // ========= Screens =========
   if (screen === "favorites") {
-  return (
+    return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <StatusBar barStyle={theme.name === "dark" ? "light-content" : "dark-content"} />
         <Header title="Favorites" showBack />
@@ -426,7 +453,7 @@ export default function App() {
           contentContainerStyle={styles.listPad}
           ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
           showsVerticalScrollIndicator={false}
-          bounces={true}
+          bounces
           renderItem={({ item }) => (
             <View
               style={[
@@ -468,18 +495,14 @@ export default function App() {
         <StatusBar barStyle={theme.name === "dark" ? "light-content" : "dark-content"} />
         <Header title="Daily Card" showBack />
         <View style={{ padding: 16 }}>
-          <Text style={{ color: theme.sub, marginBottom: 8 }}>
-            {today.toDateString()}
-          </Text>
+          <Text style={{ color: theme.sub, marginBottom: 8 }}>{today.toDateString()}</Text>
           <View
             style={[
               styles.detailCard,
               { backgroundColor: theme.card, borderColor: theme.line },
             ]}
           >
-            <Text style={[styles.detailBadge, { backgroundColor: theme.accent }]}>
-              {item.type}
-            </Text>
+            <Text style={[styles.detailBadge, { backgroundColor: theme.accent }]}>{item.type}</Text>
             <Text style={[styles.detailText, { color: theme.text }]}>{item.text}</Text>
             <Text style={{ color: theme.sub, marginTop: 10 }}>{item.category}</Text>
           </View>
@@ -503,18 +526,24 @@ export default function App() {
   }
 
   if (screen === "draw" && current) {
-  return (
+    return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <StatusBar barStyle={theme.name === "dark" ? "light-content" : "dark-content"} />
         <Header
-          title={`Magick!  ·  ${current.type === "Question" ? "The Connection Deck" : current.category === "Date Ideas" ? "Date Night Deck" : "The Challenge Deck"}`}
+          title={`Magick!  ·  ${
+            current.type === "Question"
+              ? "The Connection Deck"
+              : current.category === "Date Ideas"
+              ? "Date Night Deck"
+              : "The Challenge Deck"
+          }`}
           showBack
         />
-        <ScrollView 
+        <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={styles.detailWrap}
           showsVerticalScrollIndicator={false}
-          bounces={true}
+          bounces
         >
           <Animated.View
             style={[
@@ -531,21 +560,25 @@ export default function App() {
             </Text>
             <TouchableOpacity
               onPress={() => {
-                if (Platform.OS === 'web') {
+                if (Platform.OS === "web") {
                   navigator.clipboard.writeText(current.text);
-                  // You could add a toast notification here
                 }
               }}
-              style={Platform.OS === 'web' ? { cursor: 'pointer' } : {}}
+              style={Platform.OS === "web" ? { cursor: "pointer" } : {}}
             >
               <Text style={[styles.detailText, { color: theme.text }]}>{current.text}</Text>
             </TouchableOpacity>
             <Text style={{ color: theme.sub, marginTop: 8 }}>
               {current.category}
-              {Platform.OS === 'web' && (
+              {Platform.OS === "web" && (
                 <Text style={{ fontSize: 12, opacity: 0.7 }}> • Click text to copy</Text>
               )}
             </Text>
+            {geo.city && (
+              <Text style={{ color: theme.sub, marginTop: 4, fontSize: 12 }}>
+                📍 {geo.city}, {geo.region}
+              </Text>
+            )}
           </Animated.View>
 
           <View style={{ height: 16 }} />
@@ -558,29 +591,34 @@ export default function App() {
               <Text style={[styles.primaryTxt, { color: theme.text }]}>⟳  Draw Again</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={toggleFav} style={[styles.secondaryBtn, { borderColor: theme.line }]}>
+            <TouchableOpacity
+              onPress={toggleFav}
+              style={[styles.secondaryBtn, { borderColor: theme.line }]}
+            >
               <Text style={{ color: theme.text }}>
                 {inFav ? "★ Favorited" : "☆ Favorite"}
               </Text>
             </TouchableOpacity>
           </View>
+
+          {/* Recommended Nearby Section */}
+          <RecommendedNearby items={recommendations} theme={theme} userLocation={geo} />
         </ScrollView>
       </SafeAreaView>
     );
   }
 
-  // HOME
+  // ========= HOME =========
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <StatusBar barStyle={theme.name === "dark" ? "light-content" : "dark-content"} />
-      
-      {/* Web-specific responsive container */}
-      {Platform.OS === 'web' ? (
-        <ScrollView 
+
+      {Platform.OS === "web" ? (
+        <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ flexGrow: 1 }}
           showsVerticalScrollIndicator={false}
-          bounces={true}
+          bounces
         >
           <View style={styles.webContainer}>
             <View style={styles.webContent}>
@@ -593,152 +631,173 @@ export default function App() {
               </View>
 
               <View style={{ paddingHorizontal: 16, paddingBottom: 32 }}>
-                {/* Hero row, like your first mock */}
-              <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
-                <Hero label="The Connection Deck" onPress={drawConnectionDeck} />
-                <Hero label="Date Night Deck" onPress={() => setScreen("dateCats")} />
-                <Hero label="The Challenge Deck" onPress={drawChallengeDeck} />
-              </View>
-
-              {/* Category grid, like your 3×3 mock */}
-              <Text style={[styles.sectionTitle, { color: theme.sub }]}>
-                ICEBREAKER QUESTIONS & MISSIONS
-              </Text>
-              <View style={styles.grid}>
-                {Q_CATS.map((c) => (
-                  <Tile key={c} label={c} onPress={() => drawFromCategory(c, "Question")} />
-                ))}
-                {M_CATS.map((c) => (
-                  <Tile key={c} label={c} onPress={() => drawFromCategory(c, "Mission")} />
-                ))}
-              </View>
-
-              {/* Quick actions: Shuffle, Favorites, Daily, Dark Mode */}
-              <View style={{ marginTop: 12, gap: 10 }}>
-                <TouchableOpacity
-                  onPress={() => {
-                    setMode("all");
-                    setCurrent(pick(ALL()));
-                    setScreen("draw");
-                    flip.setValue(0);
-                    setFlipSide(0);
-                  }}
-                  style={[styles.actionBtn, { backgroundColor: theme.pill }]}
-                >
-                  <Text style={[styles.actionTxt, { color: theme.text }]}>⟳  Shuffle All Decks</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={() => setScreen("favorites")}
-                  style={[styles.actionBtn, { backgroundColor: theme.pill }]}
-                >
-                  <Text style={[styles.actionTxt, { color: theme.text }]}>★  Favorites</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={() => setScreen("daily")}
-                  style={[styles.actionBtn, { backgroundColor: theme.pill }]}
-                >
-                  <Text style={[styles.actionTxt, { color: theme.text }]}>📅  Daily Card</Text>
-                </TouchableOpacity>
-
-                <View style={[styles.darkRow, { backgroundColor: theme.pill }]}>
-                  <Text style={[styles.actionTxt, { color: theme.text }]}>🌙  Dark Mode</Text>
-                  <Switch
-                    value={theme.name === "light"}
-                    onValueChange={setThemeToggle}
-                    thumbColor={"#fff"}
-                  />
+                {/* Hero row */}
+                <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
+                  <Hero label="The Connection Deck" onPress={drawConnectionDeck} />
+                  <Hero label="Date Night Deck" onPress={() => setScreen("dateCats")} />
+                  <Hero label="The Challenge Deck" onPress={drawChallengeDeck} />
                 </View>
 
-                 {/* Keyboard shortcuts for web */}
-                 <KeyboardShortcuts />
-               </View>
-             </View>
-           </View>
-           </View>
-         </ScrollView>
-       ) : (
-         <ScrollView 
-           style={{ flex: 1 }}
-           contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
-           showsVerticalScrollIndicator={false}
-           bounces={true}
-         >
-           <View style={[styles.headerHome]}>
-             <View style={styles.orb} />
-             <Text style={[styles.logo, { color: theme.text }]}>Magick!</Text>
-             <Text style={{ color: theme.sub, marginTop: 2 }}>
-               Icebreaker Questions & Missions
-             </Text>
-           </View>
-            {/* Hero row, like your first mock */}
-            <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
-              <Hero label="The Connection Deck" onPress={drawConnectionDeck} />
-              <Hero label="Date Night Deck" onPress={() => setScreen("dateCats")} />
-              <Hero label="The Challenge Deck" onPress={drawChallengeDeck} />
-            </View>
+                {/* Category grid */}
+                <Text style={[styles.sectionTitle, { color: theme.sub }]}>
+                  ICEBREAKER QUESTIONS & MISSIONS
+                </Text>
+                <View style={styles.grid}>
+                  {Q_CATS.map((c) => (
+                    <Tile key={c} label={c} onPress={() => drawFromCategory(c, "Question")} />
+                  ))}
+                  {M_CATS.map((c) => (
+                    <Tile key={c} label={c} onPress={() => drawFromCategory(c, "Mission")} />
+                  ))}
+                </View>
 
-            {/* Category grid, like your 3×3 mock */}
-            <Text style={[styles.sectionTitle, { color: theme.sub }]}>
-              ICEBREAKER QUESTIONS & MISSIONS
-            </Text>
-            <View style={styles.grid}>
-              {Q_CATS.map((c) => (
-                <Tile key={c} label={c} onPress={() => drawFromCategory(c, "Question")} />
-              ))}
-              {M_CATS.map((c) => (
-                <Tile key={c} label={c} onPress={() => drawFromCategory(c, "Mission")} />
-              ))}
-            </View>
+                {/* Quick actions */}
+                <View style={{ marginTop: 12, gap: 10 }}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setMode("all");
+                      setCurrent(pick(ALL()));
+                      setScreen("draw");
+                      flip.setValue(0);
+                      setFlipSide(0);
+                    }}
+                    style={[styles.actionBtn, { backgroundColor: theme.pill }]}
+                  >
+                    <Text style={[styles.actionTxt, { color: theme.text }]}>
+                      ⟳  Shuffle All Decks
+                    </Text>
+                  </TouchableOpacity>
 
-            {/* Quick actions: Shuffle, Favorites, Daily, Dark Mode */}
-            <View style={{ marginTop: 12, gap: 10 }}>
-              <TouchableOpacity
-                onPress={() => {
-                  setMode("all");
-                  setCurrent(pick(ALL()));
-                  setScreen("draw");
-                  flip.setValue(0);
-                  setFlipSide(0);
-                }}
-                style={[styles.actionBtn, { backgroundColor: theme.pill }]}
-              >
-                <Text style={[styles.actionTxt, { color: theme.text }]}>⟳  Shuffle All Decks</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setScreen("favorites")}
+                    style={[styles.actionBtn, { backgroundColor: theme.pill }]}
+                  >
+                    <Text style={[styles.actionTxt, { color: theme.text }]}>★  Favorites</Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => setScreen("favorites")}
-                style={[styles.actionBtn, { backgroundColor: theme.pill }]}
-              >
-                <Text style={[styles.actionTxt, { color: theme.text }]}>★  Favorites</Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setScreen("daily")}
+                    style={[styles.actionBtn, { backgroundColor: theme.pill }]}
+                  >
+                    <Text style={[styles.actionTxt, { color: theme.text }]}>📅  Daily Card</Text>
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                onPress={() => setScreen("daily")}
-                style={[styles.actionBtn, { backgroundColor: theme.pill }]}
-              >
-                <Text style={[styles.actionTxt, { color: theme.text }]}>📅  Daily Card</Text>
-              </TouchableOpacity>
+                  <View style={[styles.darkRow, { backgroundColor: theme.pill }]}>
+                    <Text style={[styles.actionTxt, { color: theme.text }]}>🌙  Dark Mode</Text>
+                    <Switch
+                      value={theme.name === "light"}
+                      onValueChange={setThemeToggle}
+                      thumbColor={"#fff"}
+                    />
+                  </View>
 
-              <View style={[styles.darkRow, { backgroundColor: theme.pill }]}>
-                <Text style={[styles.actionTxt, { color: theme.text }]}>🌙  Dark Mode</Text>
-                <Switch
-                  value={theme.name === "light"}
-                  onValueChange={setThemeToggle}
-                  thumbColor={"#fff"}
-                />
+                  <View style={[styles.darkRow, { backgroundColor: theme.pill }]}>
+                    <Text style={[styles.actionTxt, { color: theme.text }]}>💰  Sponsor Mode</Text>
+                    <Switch
+                      value={monetizationMode === "sponsor"}
+                      onValueChange={setMonetizationToggle}
+                      thumbColor={"#fff"}
+                    />
+                  </View>
+
+                  <KeyboardShortcuts />
+                </View>
               </View>
-             </View>
-         </ScrollView>
-       )}
-     </SafeAreaView>
-   );
+            </View>
+          </View>
+        </ScrollView>
+      ) : (
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 32 }}
+          showsVerticalScrollIndicator={false}
+          bounces
+        >
+          <View style={[styles.headerHome]}>
+            <View style={styles.orb} />
+            <Text style={[styles.logo, { color: theme.text }]}>Magick!</Text>
+            <Text style={{ color: theme.sub, marginTop: 2 }}>
+              Icebreaker Questions & Missions
+            </Text>
+          </View>
+
+          {/* Hero row */}
+          <View style={{ flexDirection: "row", gap: 12, marginBottom: 16 }}>
+            <Hero label="The Connection Deck" onPress={drawConnectionDeck} />
+            <Hero label="Date Night Deck" onPress={() => setScreen("dateCats")} />
+            <Hero label="The Challenge Deck" onPress={drawChallengeDeck} />
+          </View>
+
+          {/* Category grid */}
+          <Text style={[styles.sectionTitle, { color: theme.sub }]}>
+            ICEBREAKER QUESTIONS & MISSIONS
+          </Text>
+          <View style={styles.grid}>
+            {Q_CATS.map((c) => (
+              <Tile key={c} label={c} onPress={() => drawFromCategory(c, "Question")} />
+            ))}
+            {M_CATS.map((c) => (
+              <Tile key={c} label={c} onPress={() => drawFromCategory(c, "Mission")} />
+            ))}
+          </View>
+
+          {/* Quick actions */}
+          <View style={{ marginTop: 12, gap: 10 }}>
+            <TouchableOpacity
+              onPress={() => {
+                setMode("all");
+                setCurrent(pick(ALL()));
+                setScreen("draw");
+                flip.setValue(0);
+                setFlipSide(0);
+              }}
+              style={[styles.actionBtn, { backgroundColor: theme.pill }]}
+            >
+              <Text style={[styles.actionTxt, { color: theme.text }]}>⟳  Shuffle All Decks</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setScreen("favorites")}
+              style={[styles.actionBtn, { backgroundColor: theme.pill }]}
+            >
+              <Text style={[styles.actionTxt, { color: theme.text }]}>★  Favorites</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setScreen("daily")}
+              style={[styles.actionBtn, { backgroundColor: theme.pill }]}
+            >
+              <Text style={[styles.actionTxt, { color: theme.text }]}>📅  Daily Card</Text>
+            </TouchableOpacity>
+
+            <View style={[styles.darkRow, { backgroundColor: theme.pill }]}>
+              <Text style={[styles.actionTxt, { color: theme.text }]}>🌙  Dark Mode</Text>
+              <Switch
+                value={theme.name === "light"}
+                onValueChange={setThemeToggle}
+                thumbColor={"#fff"}
+              />
+            </View>
+
+            <View style={[styles.darkRow, { backgroundColor: theme.pill }]}>
+              <Text style={[styles.actionTxt, { color: theme.text }]}>💰  Sponsor Mode</Text>
+              <Switch
+                value={monetizationMode === "sponsor"}
+                onValueChange={setMonetizationToggle}
+                thumbColor={"#fff"}
+              />
+            </View>
+          </View>
+        </ScrollView>
+      )}
+    </SafeAreaView>
+  );
 }
+
 
 /** ==== styles ==== */
 const styles = StyleSheet.create({
-  container: { 
+  container: {
     flex: 1,
   },
   header: {
@@ -755,9 +814,9 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 8,
   },
-  logo: { 
-    fontSize: 42, 
-    fontWeight: "800", 
+  logo: {
+    fontSize: 42,
+    fontWeight: "800",
     letterSpacing: 1,
   },
   orb: {
@@ -773,14 +832,14 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.7,
   },
-  headerTitle: { 
-    fontSize: 18, 
-    fontWeight: "800", 
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "800",
     letterSpacing: 0.2,
   },
-  backBtn: { 
-    paddingVertical: 6, 
-    paddingHorizontal: 8, 
+  backBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
     borderRadius: 8,
   },
   backTxt: { fontWeight: "700" },
@@ -805,16 +864,16 @@ const styles = StyleSheet.create({
   heroIconText: {
     fontSize: 20,
   },
-  heroTxt: { 
-    fontWeight: "900", 
+  heroTxt: {
+    fontWeight: "900",
     textAlign: "center",
     fontSize: 14,
     letterSpacing: 0.5,
   },
-  sectionTitle: { 
-    fontSize: 14, 
-    fontWeight: "700", 
-    marginTop: 8, 
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 8,
     marginBottom: 10,
     letterSpacing: 1,
   },
@@ -822,7 +881,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 16,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   tile: {
     width: "31%",
@@ -835,9 +894,9 @@ const styles = StyleSheet.create({
     minHeight: 160,
   },
   tileBadge: {
-    width: 48, 
-    height: 48, 
-    borderRadius: 24, 
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     marginBottom: 20,
     alignItems: "center",
     justifyContent: "center",
@@ -846,15 +905,15 @@ const styles = StyleSheet.create({
   tileIcon: {
     fontSize: 32,
   },
-  tileText: { 
-    fontWeight: "900", 
+  tileText: {
+    fontWeight: "900",
     textAlign: "center",
     fontSize: 18,
     lineHeight: 22,
     letterSpacing: 0.5,
   },
-  listPad: { 
-    padding: 16, 
+  listPad: {
+    padding: 16,
     paddingBottom: 32,
   },
   favRow: {
@@ -873,24 +932,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  removeBtn: { 
-    paddingVertical: 6, 
-    paddingHorizontal: 10, 
-    borderRadius: 8, 
+  removeBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     borderWidth: 1,
   },
-  itemTxt: { 
-    fontSize: 16, 
+  itemTxt: {
+    fontSize: 16,
     lineHeight: 22,
   },
-  detailWrap: { 
-    padding: 16, 
+  detailWrap: {
+    padding: 16,
     paddingBottom: 40,
     flexGrow: 1,
   },
-  detailCard: { 
-    borderRadius: 16, 
-    borderWidth: 1, 
+  detailCard: {
+    borderRadius: 16,
+    borderWidth: 1,
     padding: 18,
   },
   detailBadge: {
@@ -903,16 +962,16 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 12,
   },
-  detailText: { 
-    fontSize: 20, 
-    lineHeight: 28, 
+  detailText: {
+    fontSize: 20,
+    lineHeight: 28,
     fontWeight: "700",
   },
-  primaryBtn: { 
-    paddingVertical: 18, 
-    paddingHorizontal: 20, 
-    borderRadius: 16, 
-    flex: 1, 
+  primaryBtn: {
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    flex: 1,
     alignItems: "center",
     borderWidth: 0,
     shadowColor: "#000",
@@ -921,15 +980,15 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  primaryTxt: { 
-    fontWeight: "900", 
+  primaryTxt: {
+    fontWeight: "900",
     fontSize: 16,
     letterSpacing: 0.5,
   },
-  secondaryBtn: { 
-    paddingVertical: 18, 
-    paddingHorizontal: 20, 
-    borderRadius: 16, 
+  secondaryBtn: {
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 16,
     borderWidth: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -937,8 +996,8 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
-  actionBtn: { 
-    padding: 20, 
+  actionBtn: {
+    padding: 20,
     borderRadius: 18,
     borderWidth: 0,
     shadowColor: "#000",
@@ -947,16 +1006,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  actionTxt: { 
-    fontWeight: "900", 
+  actionTxt: {
+    fontWeight: "900",
     fontSize: 16,
     letterSpacing: 0.5,
   },
-  darkRow: { 
-    padding: 20, 
-    borderRadius: 18, 
-    flexDirection: "row", 
-    alignItems: "center", 
+  darkRow: {
+    padding: 20,
+    borderRadius: 18,
+    flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
     borderWidth: 0,
     shadowColor: "#000",
@@ -972,26 +1031,26 @@ const styles = StyleSheet.create({
   },
   shortcutsTitle: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: "800",
     marginBottom: 12,
-    textAlign: 'center',
+    textAlign: "center",
   },
   shortcutsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   shortcut: {
     fontSize: 12,
   },
   webContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 20,
   },
   webContent: {
-    width: '100%',
+    width: "100%",
     maxWidth: 1200,
   },
 });
