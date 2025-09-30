@@ -200,7 +200,7 @@ export default function App() {
       const location = await getLocation();
       setGeo(location);
       
-      const recs = recommendNearby({ 
+      const recs = await recommendNearby({ 
         userCity: location.city, 
         userCoord: location.coord, 
         card: current,
@@ -210,7 +210,7 @@ export default function App() {
     } catch (error) {
       console.log('Error loading location/recommendations:', error);
       // Fallback to Jacksonville recommendations
-      const recs = recommendNearby({ 
+      const recs = await recommendNearby({ 
         userCity: 'Jacksonville', 
         userCoord: null, 
         card: current 
