@@ -235,6 +235,7 @@ export default function App() {
     }
   };
 
+
   const drawConnectionDeck = () => {
     const next = pick(allQuestions());
     setMode("all");
