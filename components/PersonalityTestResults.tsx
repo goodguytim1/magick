@@ -68,7 +68,16 @@ export default function PersonalityTestResults({ data, onContinue }: Personality
     return descriptions[zodiacSign as keyof typeof descriptions] || "";
   };
 
+  const formatDateInterests = (interests: string[]) => {
+    if (!interests || !Array.isArray(interests)) return '';
+    const formatted = interests.map(interest => {
+      return interest.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    });
+    return formatted.join(', ');
+  };
+
   const formatDislikes = (dislikes: string[]) => {
+    if (!dislikes || !Array.isArray(dislikes)) return '';
     const formatted = dislikes.map(dislike => {
       return dislike.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     });
@@ -76,6 +85,7 @@ export default function PersonalityTestResults({ data, onContinue }: Personality
   };
 
   const formatUniqueTraits = (traits: string[]) => {
+    if (!traits || !Array.isArray(traits)) return '';
     const formatted = traits.map(trait => {
       return trait.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     });
@@ -101,7 +111,7 @@ export default function PersonalityTestResults({ data, onContinue }: Personality
               💕 Love Language
             </Text>
             <Text style={[styles.cardValue, { color: DARK.accent }]}>
-              {data.loveLanguage.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              {data.loveLanguage ? data.loveLanguage.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) : 'Not specified'}
             </Text>
             <Text style={[styles.cardDescription, { color: DARK.sub }]}>
               {getLoveLanguageDescription(data.loveLanguage)}
@@ -124,7 +134,7 @@ export default function PersonalityTestResults({ data, onContinue }: Personality
               🧠 Personality Type
             </Text>
             <Text style={[styles.cardValue, { color: DARK.accent }]}>
-              {data.personalityType.charAt(0).toUpperCase() + data.personalityType.slice(1)}
+              {data.personalityType ? data.personalityType.charAt(0).toUpperCase() + data.personalityType.slice(1) : 'Not specified'}
             </Text>
             <Text style={[styles.cardDescription, { color: DARK.sub }]}>
               {getPersonalityDescription(data.personalityType)}
@@ -137,7 +147,7 @@ export default function PersonalityTestResults({ data, onContinue }: Personality
               ⭐ Zodiac Sign
             </Text>
             <Text style={[styles.cardValue, { color: DARK.accent }]}>
-              {data.zodiacSign.charAt(0).toUpperCase() + data.zodiacSign.slice(1)}
+              {data.zodiacSign ? data.zodiacSign.charAt(0).toUpperCase() + data.zodiacSign.slice(1) : 'Not specified'}
             </Text>
             <Text style={[styles.cardDescription, { color: DARK.sub }]}>
               {getZodiacDescription(data.zodiacSign)}
@@ -145,7 +155,7 @@ export default function PersonalityTestResults({ data, onContinue }: Personality
           </View>
 
           {/* Dislikes */}
-          {data.dislikes.length > 0 && (
+          {data.dislikes && data.dislikes.length > 0 && (
             <View style={[styles.card, { backgroundColor: DARK.card }]}>
               <Text style={[styles.cardTitle, { color: DARK.text }]}>
                 ❌ Dislikes
@@ -157,7 +167,7 @@ export default function PersonalityTestResults({ data, onContinue }: Personality
           )}
 
           {/* Unique Traits */}
-          {data.uniqueTraits.length > 0 && (
+          {data.uniqueTraits && data.uniqueTraits.length > 0 && (
             <View style={[styles.card, { backgroundColor: DARK.card }]}>
               <Text style={[styles.cardTitle, { color: DARK.text }]}>
                 ✨ Unique Traits

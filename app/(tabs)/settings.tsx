@@ -13,9 +13,9 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import PersonalityProfileCard from '../../components/PersonalityProfileCard';
 import { deleteAccount, getCurrentUser, signOut } from '../../lib/auth';
-import { getUserConsent, updateConsent } from '../../lib/consent-manager';
-import { getPersonalityDataLocal, hasCompletedPersonalityTestLocal } from '../../lib/personality-storage-local';
+import { getPersonalityData, getUserConsent, hasCompletedPersonalityTest, updateConsent } from '../../lib/consent-manager';
 import { downloadUserData, exportUserData } from '../../lib/privacy-manager';
 import { ConsentSettings, PersonalityTestData } from '../../types/user';
 
@@ -68,11 +68,11 @@ export default function SettingsScreen() {
       setConsent(userConsent);
 
       // Load personality test data
-      const hasTest = await hasCompletedPersonalityTestLocal(currentUser.id);
+      const hasTest = await hasCompletedPersonalityTest(currentUser.id);
       setHasPersonalityTest(hasTest);
       
       if (hasTest) {
-        const personality = await getPersonalityDataLocal(currentUser.id);
+        const personality = await getPersonalityData(currentUser.id);
         setPersonalityData(personality);
       }
 
@@ -267,31 +267,38 @@ export default function SettingsScreen() {
           </Text>
           <View style={[styles.sectionCard, { backgroundColor: currentTheme.card }]}>
             <View style={styles.accountItem}>
-              <Text style={[styles.accountLabel, { color: currentTheme.sub }]}>
-                Email
-              </Text>
-              <Text style={[styles.accountValue, { color: currentTheme.text }]}>
-                {user?.email}
-              </Text>
+              <Text style={styles.accountIcon}>👤</Text>
+              <View style={styles.accountInfo}>
+                <Text style={[styles.accountLabel, { color: currentTheme.sub }]}>
+                  Email Address
+                </Text>
+                <Text style={[styles.accountValue, { color: currentTheme.text }]}>
+                  {user?.email}
+                </Text>
+              </View>
             </View>
             
-            <TouchableOpacity
-              style={styles.signOutButton}
-              onPress={handleSignOut}
-            >
-              <Text style={[styles.signOutText, { color: '#ef4444' }]}>
-                Sign Out
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={handleDeleteAccount}
-            >
-              <Text style={[styles.deleteText, { color: '#ef4444' }]}>
-                Delete Account
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.accountActions}>
+              <TouchableOpacity
+                style={[styles.accountActionButton, styles.signOutButton]}
+                onPress={handleSignOut}
+              >
+                <Text style={styles.signOutIcon}>🚪</Text>
+                <Text style={[styles.signOutText, { color: '#ef4444' }]}>
+                  Sign Out
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.accountActionButton, styles.deleteButton]}
+                onPress={handleDeleteAccount}
+              >
+                <Text style={styles.deleteIcon}>🗑️</Text>
+                <Text style={[styles.deleteText, { color: '#ef4444' }]}>
+                  Delete Account
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -300,79 +307,41 @@ export default function SettingsScreen() {
           <Text style={[styles.sectionTitle, { color: currentTheme.text }]}>
             Personality Profile
           </Text>
-          <View style={[styles.sectionCard, { backgroundColor: currentTheme.card }]}>
-            {hasPersonalityTest && personalityData ? (
-              <>
-                <View style={styles.personalityItem}>
-                  <Text style={[styles.personalityLabel, { color: currentTheme.sub }]}>
-                    Love Language
-                  </Text>
-                  <Text style={[styles.personalityValue, { color: currentTheme.text }]}>
-                    {personalityData.loveLanguage.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                  </Text>
-                </View>
-                
-                <View style={styles.personalityItem}>
-                  <Text style={[styles.personalityLabel, { color: currentTheme.sub }]}>
-                    Personality Type
-                  </Text>
-                  <Text style={[styles.personalityValue, { color: currentTheme.text }]}>
-                    {personalityData.personalityType.charAt(0).toUpperCase() + personalityData.personalityType.slice(1)}
-                  </Text>
-                </View>
-                
-                <View style={styles.personalityItem}>
-                  <Text style={[styles.personalityLabel, { color: currentTheme.sub }]}>
-                    Zodiac Sign
-                  </Text>
-                  <Text style={[styles.personalityValue, { color: currentTheme.text }]}>
-                    {personalityData.zodiacSign.charAt(0).toUpperCase() + personalityData.zodiacSign.slice(1)}
-                  </Text>
-                </View>
-                
-                <TouchableOpacity
-                  style={styles.personalityActionButton}
-                  onPress={() => router.push({
-                    pathname: '/personality-test',
-                    params: { userId: user.id, fromSettings: 'true' }
-                  })}
-                >
-                  <Text style={[styles.personalityActionText, { color: currentTheme.accent }]}>
-                    View Full Results
-                  </Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity
-                  style={styles.personalityActionButton}
-                  onPress={() => router.push({
-                    pathname: '/personality-test',
-                    params: { userId: user.id, retake: 'true' }
-                  })}
-                >
-                  <Text style={[styles.personalityActionText, { color: currentTheme.accent }]}>
-                    Retake Test
-                  </Text>
-                </TouchableOpacity>
-              </>
-            ) : (
-              <>
-                <Text style={[styles.personalityEmptyText, { color: currentTheme.sub }]}>
-                  Complete your personality test to get personalized recommendations
+          {hasPersonalityTest && personalityData ? (
+            <PersonalityProfileCard
+              data={personalityData}
+              onViewResults={() => router.push({
+                pathname: '/personality-test',
+                params: { userId: user.id, viewResults: 'true' }
+              })}
+              onRetakeTest={() => router.push({
+                pathname: '/personality-test',
+                params: { userId: user.id, retake: 'true' }
+              })}
+              theme={theme}
+            />
+          ) : (
+            <View style={[styles.sectionCard, { backgroundColor: currentTheme.card }]}>
+              <View style={styles.emptyStateContainer}>
+                <Text style={styles.emptyStateIcon}>🧠</Text>
+                <Text style={[styles.emptyStateTitle, { color: currentTheme.text }]}>
+                  Complete Your Personality Profile
+                </Text>
+                <Text style={[styles.emptyStateText, { color: currentTheme.sub }]}>
+                  Take our personality test to get personalized recommendations and discover more about yourself
                 </Text>
                 <TouchableOpacity
-                  style={styles.personalityActionButton}
+                  style={[styles.emptyStateButton, { backgroundColor: currentTheme.accent }]}
                   onPress={() => router.push({
                     pathname: '/personality-test',
                     params: { userId: user.id }
                   })}
                 >
-                  <Text style={[styles.personalityActionText, { color: currentTheme.accent }]}>
-                    Take Personality Test
-                  </Text>
+                  <Text style={styles.emptyStateButtonText}>Take Personality Test</Text>
                 </TouchableOpacity>
-              </>
-            )}
-          </View>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Privacy & Consent Section */}
@@ -384,12 +353,15 @@ export default function SettingsScreen() {
             <View style={[styles.sectionCard, { backgroundColor: currentTheme.card }]}>
               <View style={styles.consentItem}>
                 <View style={styles.consentInfo}>
-                  <Text style={[styles.consentTitle, { color: currentTheme.text }]}>
-                    Analytics
-                  </Text>
-                  <Text style={[styles.consentDescription, { color: currentTheme.sub }]}>
-                    Track app usage patterns
-                  </Text>
+                  <Text style={styles.consentIcon}>📊</Text>
+                  <View style={styles.consentTextContainer}>
+                    <Text style={[styles.consentTitle, { color: currentTheme.text }]}>
+                      Analytics
+                    </Text>
+                    <Text style={[styles.consentDescription, { color: currentTheme.sub }]}>
+                      Track app usage patterns
+                    </Text>
+                  </View>
                 </View>
                 <Switch
                   value={consent.analytics}
@@ -401,12 +373,15 @@ export default function SettingsScreen() {
 
               <View style={styles.consentItem}>
                 <View style={styles.consentInfo}>
-                  <Text style={[styles.consentTitle, { color: currentTheme.text }]}>
-                    Personalization
-                  </Text>
-                  <Text style={[styles.consentDescription, { color: currentTheme.sub }]}>
-                    Customize recommendations
-                  </Text>
+                  <Text style={styles.consentIcon}>🎯</Text>
+                  <View style={styles.consentTextContainer}>
+                    <Text style={[styles.consentTitle, { color: currentTheme.text }]}>
+                      Personalization
+                    </Text>
+                    <Text style={[styles.consentDescription, { color: currentTheme.sub }]}>
+                      Customize recommendations
+                    </Text>
+                  </View>
                 </View>
                 <Switch
                   value={consent.personalization}
@@ -418,12 +393,15 @@ export default function SettingsScreen() {
 
               <View style={styles.consentItem}>
                 <View style={styles.consentInfo}>
-                  <Text style={[styles.consentTitle, { color: currentTheme.text }]}>
-                    Marketing
-                  </Text>
-                  <Text style={[styles.consentDescription, { color: currentTheme.sub }]}>
-                    Show partner offers
-                  </Text>
+                  <Text style={styles.consentIcon}>📢</Text>
+                  <View style={styles.consentTextContainer}>
+                    <Text style={[styles.consentTitle, { color: currentTheme.text }]}>
+                      Marketing
+                    </Text>
+                    <Text style={[styles.consentDescription, { color: currentTheme.sub }]}>
+                      Show partner offers
+                    </Text>
+                  </View>
                 </View>
                 <Switch
                   value={consent.marketing}
@@ -435,12 +413,15 @@ export default function SettingsScreen() {
 
               <View style={styles.consentItem}>
                 <View style={styles.consentInfo}>
-                  <Text style={[styles.consentTitle, { color: currentTheme.text }]}>
-                    Data Sharing
-                  </Text>
-                  <Text style={[styles.consentDescription, { color: currentTheme.sub }]}>
-                    Share anonymized data
-                  </Text>
+                  <Text style={styles.consentIcon}>🤝</Text>
+                  <View style={styles.consentTextContainer}>
+                    <Text style={[styles.consentTitle, { color: currentTheme.text }]}>
+                      Data Sharing
+                    </Text>
+                    <Text style={[styles.consentDescription, { color: currentTheme.sub }]}>
+                      Share anonymized data
+                    </Text>
+                  </View>
                 </View>
                 <Switch
                   value={consent.data_sharing}
@@ -485,12 +466,15 @@ export default function SettingsScreen() {
           <View style={[styles.sectionCard, { backgroundColor: currentTheme.card }]}>
             <View style={styles.preferenceItem}>
               <View style={styles.preferenceInfo}>
-                <Text style={[styles.preferenceTitle, { color: currentTheme.text }]}>
-                  Theme
-                </Text>
-                <Text style={[styles.preferenceDescription, { color: currentTheme.sub }]}>
-                  Choose your preferred theme
-                </Text>
+                <Text style={styles.preferenceIcon}>🎨</Text>
+                <View style={styles.preferenceTextContainer}>
+                  <Text style={[styles.preferenceTitle, { color: currentTheme.text }]}>
+                    Theme
+                  </Text>
+                  <Text style={[styles.preferenceDescription, { color: currentTheme.sub }]}>
+                    Choose your preferred theme
+                  </Text>
+                </View>
               </View>
               <View style={styles.themeButtons}>
                 <TouchableOpacity
@@ -526,12 +510,15 @@ export default function SettingsScreen() {
 
             <View style={styles.preferenceItem}>
               <View style={styles.preferenceInfo}>
-                <Text style={[styles.preferenceTitle, { color: currentTheme.text }]}>
-                  Monetization Mode
-                </Text>
-                <Text style={[styles.preferenceDescription, { color: currentTheme.sub }]}>
-                  Choose how businesses are displayed
-                </Text>
+                <Text style={styles.preferenceIcon}>💼</Text>
+                <View style={styles.preferenceTextContainer}>
+                  <Text style={[styles.preferenceTitle, { color: currentTheme.text }]}>
+                    Monetization Mode
+                  </Text>
+                  <Text style={[styles.preferenceDescription, { color: currentTheme.sub }]}>
+                    Choose how businesses are displayed
+                  </Text>
+                </View>
               </View>
               <View style={styles.monetizationButtons}>
                 <TouchableOpacity
@@ -589,21 +576,42 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   section: {
-    marginBottom: 32,
+    marginBottom: 40,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 16,
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 20,
+    letterSpacing: -0.5,
   },
   sectionCard: {
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 20,
+    padding: 24,
     borderWidth: 1,
     borderColor: '#2a2740',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   accountItem: {
-    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a2740',
+  },
+  accountIcon: {
+    fontSize: 24,
+    marginRight: 16,
+  },
+  accountInfo: {
+    flex: 1,
   },
   accountLabel: {
     fontSize: 14,
@@ -614,18 +622,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  signOutButton: {
-    paddingVertical: 12,
+  accountActions: {
+    gap: 12,
+  },
+  accountActionButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  signOutButton: {
+    borderColor: '#ef4444',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+  },
+  signOutIcon: {
+    fontSize: 16,
+    marginRight: 8,
   },
   signOutText: {
     fontSize: 16,
     fontWeight: '600',
   },
   deleteButton: {
-    paddingVertical: 12,
-    alignItems: 'center',
+    borderColor: '#ef4444',
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+  },
+  deleteIcon: {
+    fontSize: 16,
+    marginRight: 8,
   },
   deleteText: {
     fontSize: 16,
@@ -635,11 +662,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 24,
+    paddingVertical: 4,
   },
   consentInfo: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     marginRight: 16,
+  },
+  consentIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  consentTextContainer: {
+    flex: 1,
   },
   consentTitle: {
     fontSize: 16,
@@ -648,6 +685,7 @@ const styles = StyleSheet.create({
   },
   consentDescription: {
     fontSize: 14,
+    lineHeight: 18,
   },
   privacyActions: {
     marginTop: 20,
@@ -670,10 +708,19 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   preferenceItem: {
-    marginBottom: 24,
+    marginBottom: 32,
   },
   preferenceInfo: {
-    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  preferenceIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  preferenceTextContainer: {
+    flex: 1,
   },
   preferenceTitle: {
     fontSize: 16,
@@ -682,6 +729,7 @@ const styles = StyleSheet.create({
   },
   preferenceDescription: {
     fontSize: 14,
+    lineHeight: 18,
   },
   themeButtons: {
     flexDirection: 'row',
@@ -717,31 +765,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  personalityItem: {
-    marginBottom: 16,
-  },
-  personalityLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  personalityValue: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  personalityActionButton: {
-    paddingVertical: 12,
+  emptyStateContainer: {
     alignItems: 'center',
-    marginBottom: 8,
+    paddingVertical: 32,
   },
-  personalityActionText: {
+  emptyStateIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyStateText: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+    paddingHorizontal: 16,
+  },
+  emptyStateButton: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+  },
+  emptyStateButtonText: {
+    color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
-  },
-  personalityEmptyText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 24,
   },
 });

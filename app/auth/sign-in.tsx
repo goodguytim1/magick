@@ -13,7 +13,7 @@ import {
     View,
 } from 'react-native';
 import { signIn } from '../../lib/auth';
-import { hasCompletedPersonalityTestLocal } from '../../lib/personality-storage-local';
+import { hasCompletedPersonalityTest } from '../../lib/consent-manager';
 
 const DARK = {
   bg: "#0c0a12",
@@ -41,7 +41,7 @@ export default function SignInScreen() {
       const result = await signIn(email, password);
       if (result.user) {
         // Check if user has completed personality test
-        const hasCompleted = await hasCompletedPersonalityTestLocal(result.user.id);
+        const hasCompleted = await hasCompletedPersonalityTest(result.user.id);
         if (!hasCompleted) {
           // Redirect to personality test
           router.replace({

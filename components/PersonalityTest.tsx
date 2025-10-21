@@ -443,9 +443,24 @@ export default function PersonalityTest({ onComplete, onSkip }: PersonalityTestP
     const step = steps[currentStep];
     
     if (step.type === 'single') {
+      let propertyName: string;
+      switch (step.title) {
+        case 'Love Language':
+          propertyName = 'loveLanguage';
+          break;
+        case 'Personality Type':
+          propertyName = 'personalityType';
+          break;
+        case 'Zodiac Sign':
+          propertyName = 'zodiacSign';
+          break;
+        default:
+          propertyName = step.title.toLowerCase().replace(' ', '');
+      }
+      
       setTestData(prev => ({
         ...prev,
-        [step.title.toLowerCase().replace(' ', '')]: option.value
+        [propertyName]: option.value
       }));
     } else if (step.type === 'multiple') {
       if (step.title === 'Date Interests') {
@@ -508,8 +523,21 @@ export default function PersonalityTest({ onComplete, onSkip }: PersonalityTestP
   const isStepValid = () => {
     const step = steps[currentStep];
     if (step.type === 'single') {
-      const key = step.title.toLowerCase().replace(' ', '');
-      return testData[key as keyof typeof testData];
+      let propertyName: string;
+      switch (step.title) {
+        case 'Love Language':
+          propertyName = 'loveLanguage';
+          break;
+        case 'Personality Type':
+          propertyName = 'personalityType';
+          break;
+        case 'Zodiac Sign':
+          propertyName = 'zodiacSign';
+          break;
+        default:
+          propertyName = step.title.toLowerCase().replace(' ', '');
+      }
+      return testData[propertyName as keyof typeof testData];
     } else if (step.type === 'multiple') {
       if (step.title === 'Date Interests') {
         return testData.dateInterests && testData.dateInterests.length > 0;
@@ -566,8 +594,21 @@ export default function PersonalityTest({ onComplete, onSkip }: PersonalityTestP
             {currentStepData.options?.map((option) => {
               let isSelected = false;
               if (currentStepData.type === 'single') {
-                const key = currentStepData.title.toLowerCase().replace(' ', '');
-                isSelected = testData[key as keyof typeof testData] === option.value;
+                let propertyName: string;
+                switch (currentStepData.title) {
+                  case 'Love Language':
+                    propertyName = 'loveLanguage';
+                    break;
+                  case 'Personality Type':
+                    propertyName = 'personalityType';
+                    break;
+                  case 'Zodiac Sign':
+                    propertyName = 'zodiacSign';
+                    break;
+                  default:
+                    propertyName = currentStepData.title.toLowerCase().replace(' ', '');
+                }
+                isSelected = testData[propertyName as keyof typeof testData] === option.value;
               } else if (currentStepData.type === 'multiple') {
                 if (currentStepData.title === 'Date Interests') {
                   isSelected = testData.dateInterests?.includes(option.value);

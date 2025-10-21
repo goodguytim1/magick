@@ -1,24 +1,54 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert } from 'react-native';
 import PersonalityTest from '../components/PersonalityTest';
 import PersonalityTestResults from '../components/PersonalityTestResults';
-import { savePersonalityDataLocal } from '../lib/personality-storage-local';
+import { getPersonalityData, savePersonalityData } from '../lib/consent-manager';
 import { PersonalityTestData } from '../types/user';
 
 export default function PersonalityTestFlow() {
-  const { userId, fromSettings, retake } = useLocalSearchParams<{ 
+  const { userId, fromSettings, retake, viewResults } = useLocalSearchParams<{ 
     userId: string; 
     fromSettings?: string; 
     retake?: string; 
+    viewResults?: string;
   }>();
   const [showResults, setShowResults] = useState(false);
   const [testData, setTestData] = useState<PersonalityTestData | null>(null);
 
+  useEffect(() => {
+    const loadExistingData = async () => {
+      if (viewResults === 'true' && userId) {
+        try {
+          const existingData = await getPersonalityData(userId);
+          if (existingData) {
+            setTestData(existingData);
+            setShowResults(true);
+          } else {
+            Alert.alert(
+              'No Results Found',
+              'No personality test results found. Please take the test first.',
+              [{ text: 'OK', onPress: () => router.back() }]
+            );
+          }
+        } catch (error) {
+          console.error('Error loading personality data:', error);
+          Alert.alert(
+            'Error',
+            'Failed to load personality data. Please try again.',
+            [{ text: 'OK', onPress: () => router.back() }]
+          );
+        }
+      }
+    };
+
+    loadExistingData();
+  }, [viewResults, userId]);
+
   const handleTestComplete = async (data: PersonalityTestData) => {
     try {
       setTestData(data);
-      await savePersonalityDataLocal(userId!, data);
+      await savePersonalityData(userId!, data);
       setShowResults(true);
     } catch (error) {
       console.error('Error saving personality data:', error);
